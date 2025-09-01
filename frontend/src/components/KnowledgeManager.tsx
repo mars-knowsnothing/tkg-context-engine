@@ -3,11 +3,15 @@
 import { useState, useEffect } from 'react';
 import { Plus, Search, Database, Edit3, Trash2, Eye, Filter } from 'lucide-react';
 import { knowledgeApi } from '@/lib/api';
-import { KnowledgeNode, KnowledgeNodeCreate, NodeType } from '@/lib/types';
+import { KnowledgeNode } from '@/lib/types';
 import { formatDate, truncateText, debounce } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 
 const KnowledgeManager = () => {
+  // Define types inline to avoid module resolution issues
+  type NodeType = 'entity' | 'event' | 'concept' | 'episode';
+  type KnowledgeNodeCreate = Omit<KnowledgeNode, 'id' | 'created_at' | 'updated_at'>;
+
   const [nodes, setNodes] = useState<KnowledgeNode[]>([]);
   const [filteredNodes, setFilteredNodes] = useState<KnowledgeNode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,7 +24,7 @@ const KnowledgeManager = () => {
   // Form state
   const [formData, setFormData] = useState<KnowledgeNodeCreate>({
     name: '',
-    type: NodeType.ENTITY,
+    type: 'entity',
     content: '',
     properties: {}
   });
@@ -50,8 +54,8 @@ const KnowledgeManager = () => {
   const loadNodes = async () => {
     try {
       setLoading(true);
-      const data = await knowledgeApi.list();
-      setNodes(data);
+      const response = await knowledgeApi.getAll();
+      setNodes(response.data);
     } catch (error) {
       console.error('Failed to load nodes:', error);
     } finally {
@@ -66,7 +70,7 @@ const KnowledgeManager = () => {
       setShowCreateForm(false);
       setFormData({
         name: '',
-        type: NodeType.ENTITY,
+        type: "entity",
         content: '',
         properties: {}
       });
@@ -188,9 +192,9 @@ const KnowledgeManager = () => {
             onChange={(e) => setFormData({...formData, type: e.target.value as NodeType})}
             className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-400/50"
           >
-            <option value={NodeType.ENTITY}>Entity</option>
-            <option value={NodeType.EVENT}>Event</option>
-            <option value={NodeType.CONCEPT}>Concept</option>
+            <option value="entity">Entity</option>
+            <option value="event">Event</option>
+            <option value="concept">Concept</option>
           </select>
         </div>
         
@@ -220,7 +224,7 @@ const KnowledgeManager = () => {
               setEditingNode(null);
               setFormData({
                 name: '',
-                type: NodeType.ENTITY,
+                type: "entity",
                 content: '',
                 properties: {}
               });
@@ -338,9 +342,9 @@ const KnowledgeManager = () => {
               className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-400/50"
             >
               <option value="all">All Types</option>
-              <option value={NodeType.ENTITY}>Entities</option>
-              <option value={NodeType.EVENT}>Events</option>
-              <option value={NodeType.CONCEPT}>Concepts</option>
+              <option value={"entity"}>Entities</option>
+              <option value={"event"}>Events</option>
+              <option value={"concept"}>Concepts</option>
             </select>
           </div>
         </div>

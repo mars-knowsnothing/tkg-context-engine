@@ -21,7 +21,8 @@ const Dashboard = () => {
         setLoading(true);
         
         // Load knowledge nodes
-        const nodesData = await knowledgeApi.list({ limit: 5 });
+        const nodesResponse = await knowledgeApi.getAll();
+        const nodesData = nodesResponse.data.slice(0, 5); // Limit to 5 nodes
         setNodes(nodesData);
         
         // Update stats
