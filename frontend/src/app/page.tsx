@@ -5,10 +5,11 @@ import Navbar from '@/components/Navbar';
 import Dashboard from '@/components/Dashboard';
 import KnowledgeManager from '@/components/KnowledgeManager';
 import ChatInterface from '@/components/ChatInterface';
+import TemporalExplorer from '@/components/TemporalExplorer';
 import { healthApi } from '@/lib/api';
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'knowledge' | 'chat'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'knowledge' | 'chat' | 'temporal'>('dashboard');
   const [isHealthy, setIsHealthy] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -38,6 +39,7 @@ export default function Home() {
         {activeTab === 'dashboard' && <Dashboard />}
         {activeTab === 'knowledge' && <KnowledgeManager />}
         {activeTab === 'chat' && <ChatInterface />}
+        {activeTab === 'temporal' && <TemporalExplorer />}
       </main>
     </div>
   );

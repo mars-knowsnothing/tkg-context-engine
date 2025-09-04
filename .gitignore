@@ -13,6 +13,7 @@
 # Database
 *.db
 *.sqlite
+data/
 
 # Python
 __pycache__/

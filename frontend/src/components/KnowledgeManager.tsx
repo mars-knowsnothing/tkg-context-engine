@@ -1,17 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Search, Database, Edit3, Trash2, Eye, Filter } from 'lucide-react';
 import { knowledgeApi } from '@/lib/api';
 import { KnowledgeNode } from '@/lib/types';
 import { formatDate, truncateText, debounce } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 
-const KnowledgeManager = () => {
-  // Define types inline to avoid module resolution issues
-  type NodeType = 'entity' | 'event' | 'concept' | 'episode';
-  type KnowledgeNodeCreate = Omit<KnowledgeNode, 'id' | 'created_at' | 'updated_at'>;
+// Define types outside component to prevent re-creation
+type NodeType = 'entity' | 'event' | 'concept' | 'episode';
+type KnowledgeNodeCreate = Omit<KnowledgeNode, 'id' | 'created_at' | 'updated_at'>;
 
+const KnowledgeManager = () => {
   const [nodes, setNodes] = useState<KnowledgeNode[]>([]);
   const [filteredNodes, setFilteredNodes] = useState<KnowledgeNode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,6 +20,11 @@ const KnowledgeManager = () => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingNode, setEditingNode] = useState<KnowledgeNode | null>(null);
   const [selectedNode, setSelectedNode] = useState<KnowledgeNode | null>(null);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalNodes, setTotalNodes] = useState(0);
+  const pageSize = 10;
 
   // Form state
   const [formData, setFormData] = useState<KnowledgeNodeCreate>({
@@ -29,44 +34,42 @@ const KnowledgeManager = () => {
     properties: {}
   });
 
-  useEffect(() => {
-    loadNodes();
-  }, []);
-
-  useEffect(() => {
-    // Filter nodes based on search query and type
-    let filtered = nodes;
-    
-    if (searchQuery) {
-      filtered = filtered.filter(node =>
-        node.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        node.content.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    }
-    
-    if (selectedType !== 'all') {
-      filtered = filtered.filter(node => node.type === selectedType);
-    }
-    
-    setFilteredNodes(filtered);
-  }, [nodes, searchQuery, selectedType]);
-
-  const loadNodes = async () => {
+  const loadNodes = useCallback(async (page: number = 1, search: string = '') => {
     try {
       setLoading(true);
-      const response = await knowledgeApi.getAll();
-      setNodes(response.data);
+      const offset = (page - 1) * pageSize;
+      const params = new URLSearchParams({
+        limit: pageSize.toString(),
+        offset: offset.toString(),
+      });
+      
+      if (search.trim()) {
+        params.append('search', search.trim());
+      }
+      
+      const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+      const response = await fetch(`${BASE_URL}/api/knowledge/?${params}`);
+      const data = await response.json();
+      setNodes(data);
+      
+      // For total count, we need to make another call without pagination
+      if (!search.trim()) {
+        const totalResponse = await fetch(`${BASE_URL}/api/knowledge/?limit=1000`);
+        const totalData = await totalResponse.json();
+        setTotalNodes(totalData.length);
+      } else {
+        setTotalNodes(data.length); // For search results, use current results length
+      }
     } catch (error) {
       console.error('Failed to load nodes:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [pageSize]);
 
-  const handleCreateNode = async () => {
+  const handleCreateNode = useCallback(async () => {
     try {
       const newNode = await knowledgeApi.create(formData);
-      setNodes([newNode, ...nodes]);
       setShowCreateForm(false);
       setFormData({
         name: '',
@@ -74,28 +77,102 @@ const KnowledgeManager = () => {
         content: '',
         properties: {}
       });
+      // Refresh current page
+      loadNodes(currentPage, searchQuery);
     } catch (error) {
       console.error('Failed to create node:', error);
     }
-  };
+  }, [formData, currentPage, searchQuery, loadNodes]);
 
-  const handleDeleteNode = async (id: string) => {
+  const handleUpdateNode = useCallback(async () => {
+    if (!editingNode) return;
+    
+    try {
+      const updatedNode = await knowledgeApi.update(editingNode.id, formData);
+      setNodes(prev => prev.map(node => 
+        node.id === editingNode.id ? updatedNode : node
+      ));
+      // Clear editing state and form
+      setEditingNode(null);
+      setFormData({
+        name: '',
+        type: "entity",
+        content: '',
+        properties: {}
+      });
+    } catch (error) {
+      console.error('Failed to update node:', error);
+    }
+  }, [editingNode, formData]);
+
+  const handleSubmit = useCallback(async () => {
+    if (editingNode) {
+      await handleUpdateNode();
+    } else {
+      await handleCreateNode();
+    }
+  }, [editingNode, handleUpdateNode, handleCreateNode]);
+
+  const handleDeleteNode = useCallback(async (id: string) => {
     if (!confirm('Are you sure you want to delete this node?')) return;
     
     try {
       await knowledgeApi.delete(id);
-      setNodes(nodes.filter(node => node.id !== id));
       if (selectedNode?.id === id) {
         setSelectedNode(null);
       }
+      // Refresh current page
+      loadNodes(currentPage, searchQuery);
     } catch (error) {
       console.error('Failed to delete node:', error);
     }
-  };
+  }, [selectedNode?.id, currentPage, searchQuery, loadNodes]);
 
-  const debouncedSearch = debounce((query: string) => {
+  // Use useMemo for expensive operations
+  const debouncedSearch = useMemo(() => debounce((query: string) => {
     setSearchQuery(query);
-  }, 300);
+  }, 300), []);
+
+  // Form input handlers with useCallback to prevent re-renders
+  const handleFormChange = useCallback((field: keyof KnowledgeNodeCreate, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  }, []);
+
+  const resetForm = useCallback(() => {
+    setShowCreateForm(false);
+    setEditingNode(null);
+    setFormData({
+      name: '',
+      type: "entity",
+      content: '',
+      properties: {}
+    });
+  }, []);
+
+  useEffect(() => {
+    loadNodes(currentPage, searchQuery);
+  }, [loadNodes, currentPage]);
+
+  // Debounced search effect
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setCurrentPage(1); // Reset to first page on search
+      loadNodes(1, searchQuery);
+    }, 300);
+    
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery, loadNodes]);
+
+  useEffect(() => {
+    // Filter nodes based on type only (search is now handled server-side)
+    let filtered = nodes;
+    
+    if (selectedType !== 'all') {
+      filtered = filtered.filter(node => node.type === selectedType);
+    }
+    
+    setFilteredNodes(filtered);
+  }, [nodes, searchQuery, selectedType]);
 
   const NodeCard = ({ node }: { node: KnowledgeNode }) => (
     <div className="glass p-4 rounded-lg hover:glow transition-all duration-200 cursor-pointer"
@@ -164,7 +241,8 @@ const KnowledgeManager = () => {
     </div>
   );
 
-  const CreateNodeForm = () => (
+  // Define components outside of render to prevent re-creation
+  const CreateNodeForm = useMemo(() => (
     <div className="glass p-6 rounded-xl">
       <h3 className="text-xl font-semibold text-white mb-4">
         {editingNode ? 'Edit Node' : 'Create New Node'}
@@ -177,9 +255,10 @@ const KnowledgeManager = () => {
           <input
             type="text"
             value={formData.name}
-            onChange={(e) => setFormData({...formData, name: e.target.value})}
+            onChange={(e) => handleFormChange('name', e.target.value)}
             className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400/50"
             placeholder="Enter node name..."
+            autoComplete="off"
           />
         </div>
         
@@ -189,7 +268,7 @@ const KnowledgeManager = () => {
           </label>
           <select
             value={formData.type}
-            onChange={(e) => setFormData({...formData, type: e.target.value as NodeType})}
+            onChange={(e) => handleFormChange('type', e.target.value as NodeType)}
             className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-400/50"
           >
             <option value="entity">Entity</option>
@@ -204,7 +283,7 @@ const KnowledgeManager = () => {
           </label>
           <textarea
             value={formData.content}
-            onChange={(e) => setFormData({...formData, content: e.target.value})}
+            onChange={(e) => handleFormChange('content', e.target.value)}
             rows={4}
             className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400/50"
             placeholder="Enter node content/description..."
@@ -213,22 +292,13 @@ const KnowledgeManager = () => {
         
         <div className="flex space-x-3">
           <button
-            onClick={handleCreateNode}
+            onClick={handleSubmit}
             className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg transition-colors duration-200"
           >
             {editingNode ? 'Update Node' : 'Create Node'}
           </button>
           <button
-            onClick={() => {
-              setShowCreateForm(false);
-              setEditingNode(null);
-              setFormData({
-                name: '',
-                type: "entity",
-                content: '',
-                properties: {}
-              });
-            }}
+            onClick={resetForm}
             className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors duration-200"
           >
             Cancel
@@ -236,7 +306,7 @@ const KnowledgeManager = () => {
         </div>
       </div>
     </div>
-  );
+  ), [editingNode, formData, handleFormChange, handleSubmit, resetForm]);
 
   const NodeDetails = ({ node }: { node: KnowledgeNode }) => (
     <div className="glass p-6 rounded-xl">
@@ -351,7 +421,7 @@ const KnowledgeManager = () => {
       </div>
 
       {/* Create/Edit Form */}
-      {(showCreateForm || editingNode) && <CreateNodeForm />}
+      {(showCreateForm || editingNode) && CreateNodeForm}
 
       {/* Node Details */}
       {selectedNode && <NodeDetails node={selectedNode} />}
@@ -387,6 +457,34 @@ const KnowledgeManager = () => {
                 ? 'Try adjusting your filters'
                 : 'Create your first knowledge node to get started'}
             </p>
+          </div>
+        )}
+        
+        {/* Pagination */}
+        {!loading && totalNodes > pageSize && (
+          <div className="flex items-center justify-between px-6 py-4 border-t border-white/10">
+            <div className="text-sm text-gray-400">
+              Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, totalNodes)} of {totalNodes} results
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1 rounded bg-white/10 text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/20 transition-colors"
+              >
+                Previous
+              </button>
+              <span className="px-3 py-1 bg-blue-500/20 text-blue-300 rounded">
+                Page {currentPage} of {Math.ceil(totalNodes / pageSize)}
+              </span>
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(Math.ceil(totalNodes / pageSize), prev + 1))}
+                disabled={currentPage >= Math.ceil(totalNodes / pageSize)}
+                className="px-3 py-1 rounded bg-white/10 text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/20 transition-colors"
+              >
+                Next
+              </button>
+            </div>
           </div>
         )}
       </div>

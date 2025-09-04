@@ -2,11 +2,29 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from ..models.schemas import ChatRequest, ChatResponse, QueryResult, KnowledgeNodeResponse, RelationResponse
 from ..services.graphiti_service import GraphitiService
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 def get_graphiti_service(request: Request) -> GraphitiService:
     return request.app.state.graphiti_service
+
+def _normalize_node_type(raw_type: str) -> str:
+    """Normalize node type from various formats to valid enum values"""
+    if not isinstance(raw_type, str):
+        return 'entity'
+    
+    # Handle enum-like strings (e.g., "NodeType.ENTITY", "nodetype.entity" -> "entity")
+    type_str = raw_type.split('.')[-1].lower() if '.' in raw_type else raw_type.lower()
+    # Remove any prefix like "nodetype"
+    node_type = type_str.replace('nodetype', '').strip('.')
+    
+    if node_type not in ['entity', 'event', 'concept', 'episode']:
+        node_type = 'entity'
+    
+    return node_type
 
 @router.post("/", response_model=ChatResponse)
 async def chat(
@@ -17,9 +35,11 @@ async def chat(
     try:
         session_id = chat_req.session_id or str(uuid.uuid4())
         
+        # Use the same limit as temporal queries for consistency
         response_text, query_result_data = await graphiti_service.process_chat_query(
             message=chat_req.message,
-            session_id=session_id
+            session_id=session_id,
+            limit=20  # Same as temporal queries
         )
         
         query_result = None
@@ -28,7 +48,7 @@ async def chat(
                 KnowledgeNodeResponse(
                     id=node['id'],
                     name=node['name'],
-                    type=node['type'],
+                    type=_normalize_node_type(node['type']),
                     content=node['content'],
                     properties=node['properties'],
                     created_at=node['created_at'],
@@ -62,7 +82,9 @@ async def chat(
             session_id=session_id,
             query_result=query_result
         )
+        
     except Exception as e:
+        logger.error(f"Chat endpoint error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/sessions/{session_id}/history")

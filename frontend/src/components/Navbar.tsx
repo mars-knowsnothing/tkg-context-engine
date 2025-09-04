@@ -1,11 +1,11 @@
 'use client';
 
-import { Database, MessageCircle, BarChart3, Settings, Activity } from 'lucide-react';
+import { Database, MessageCircle, BarChart3, Settings, Activity, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface NavbarProps {
-  activeTab: 'dashboard' | 'knowledge' | 'chat';
-  setActiveTab: (tab: 'dashboard' | 'knowledge' | 'chat') => void;
+  activeTab: 'dashboard' | 'knowledge' | 'chat' | 'temporal';
+  setActiveTab: (tab: 'dashboard' | 'knowledge' | 'chat' | 'temporal') => void;
   isHealthy: boolean | null;
 }
 
@@ -28,6 +28,12 @@ const Navbar = ({ activeTab, setActiveTab, isHealthy }: NavbarProps) => {
       label: 'Chat',
       icon: MessageCircle,
       description: 'Interactive Query Interface'
+    },
+    {
+      id: 'temporal' as const,
+      label: 'Temporal',
+      icon: Clock,
+      description: 'Time-aware Graph Exploration'
     }
   ];
 

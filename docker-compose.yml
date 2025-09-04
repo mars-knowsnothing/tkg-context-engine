@@ -1,4 +1,5 @@
-version: '3.8'
+# TKG Context Engine - Docker Compose Configuration
+# Modern Docker Compose format (no version required for Compose v2+)
 
 services:
   # FalkorDB Graph Database
@@ -6,10 +7,10 @@ services:
     image: falkordb/falkordb:latest
     container_name: tkg_falkordb
     environment:
-      - REDIS_ARGS=--requirepass falkordb
-      - FALKORDB_ARGS=THREAD_COUNT 4
+      REDIS_ARGS: "--requirepass falkordb"
+      FALKORDB_ARGS: "THREAD_COUNT 4"
     ports:
-      - "6380:6379"  # Changed port to avoid conflicts
+      - "6380:6379"  # FalkorDB Redis port
       - "3001:3000"  # FalkorDB browser interface
     volumes:
       - falkordb_data:/var/lib/falkordb/data
@@ -19,15 +20,20 @@ services:
       timeout: 10s
       retries: 5
       start_period: 10s
+    restart: unless-stopped
+    networks:
+      - tkg_network
 
   # PostgreSQL Database (for metadata and user data)
   postgres:
-    image: postgres:15
+    image: postgres:15-alpine
     container_name: tkg_postgres
     environment:
       POSTGRES_DB: tkg_context
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+      # Security improvements
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
     ports:
       - "5433:5432"
     volumes:
@@ -37,6 +43,10 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - tkg_network
 
   # Redis Cache (for session and caching)
   redis:
@@ -46,11 +56,21 @@ services:
       - "6378:6379"
     volumes:
       - redis_data:/data
+    # Redis configuration for better security and performance
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - tkg_network
 
   # Backend API
   backend:
@@ -59,25 +79,43 @@ services:
       dockerfile: Dockerfile
     container_name: tkg_backend
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/tkg_context
-      - REDIS_URL=redis://redis:6379
-      - FALKORDB_HOST=falkordb
-      - FALKORDB_PORT=6379
-      - FALKORDB_PASSWORD=falkordb
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/tkg_context"
+      REDIS_URL: "redis://redis:6379"
+      FALKORDB_HOST: "falkordb"
+      FALKORDB_PORT: "6379"
+      FALKORDB_PASSWORD: "falkordb"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      # Production settings
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
+        restart: true
       redis:
         condition: service_healthy
+        restart: true
       falkordb:
         condition: service_healthy
+        restart: true
     volumes:
       - ./backend:/app
+      # Performance optimization: exclude Python cache
+      - /app/__pycache__
     working_dir: /app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+    networks:
+      - tkg_network
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
 
   # Frontend Web UI
   frontend:
@@ -86,19 +124,51 @@ services:
       dockerfile: Dockerfile
     container_name: tkg_frontend
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      NEXT_PUBLIC_API_URL: "http://localhost:8000"
+      # Next.js optimization
+      NODE_ENV: "development"
+      NEXT_TELEMETRY_DISABLED: "1"
     ports:
       - "3000:3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_started
+        restart: true
     volumes:
       - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
+      # Performance optimization: use named volumes for node_modules
+      - frontend_node_modules:/app/node_modules
+      - frontend_next:/app/.next
     working_dir: /app
     command: yarn dev
+    restart: unless-stopped
+    networks:
+      - tkg_network
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
 
+# Named volumes for data persistence
 volumes:
   postgres_data:
+    driver: local
   redis_data:
+    driver: local
   falkordb_data:
+    driver: local
+  frontend_node_modules:
+    driver: local
+  frontend_next:
+    driver: local
+
+# Custom network for service communication
+networks:
+  tkg_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

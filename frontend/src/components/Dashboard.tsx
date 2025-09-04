@@ -22,14 +22,16 @@ const Dashboard = () => {
         
         // Load knowledge nodes
         const nodesResponse = await knowledgeApi.getAll();
-        const nodesData = nodesResponse.data.slice(0, 5); // Limit to 5 nodes
-        setNodes(nodesData);
+        const nodesData = nodesResponse.data || []; // Handle empty response
+        const limitedNodes = nodesData.slice(0, 5); // Limit to 5 nodes
+        setNodes(limitedNodes);
         
         // Update stats
         setStats({
           totalNodes: nodesData.length,
           totalRelations: 0, // This would come from relations API
           recentActivity: nodesData.filter(node => {
+            if (!node.created_at) return false;
             const nodeDate = new Date(node.created_at);
             const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
             return nodeDate > oneDayAgo;

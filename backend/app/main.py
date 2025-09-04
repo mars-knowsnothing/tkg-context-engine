@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import os
-from .api import knowledge, relations, query, chat
+from .api import knowledge, relations, query, chat, temporal, events, graph
 from .services.graphiti_service import GraphitiService
 
 @asynccontextmanager
@@ -38,6 +38,8 @@ app.include_router(knowledge.router, prefix="/api/knowledge", tags=["knowledge"]
 app.include_router(relations.router, prefix="/api/relations", tags=["relations"])
 app.include_router(query.router, prefix="/api/query", tags=["query"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+app.include_router(temporal.router, prefix="/api/temporal", tags=["temporal"])
+app.include_router(events.router, tags=["events"])
 
 @app.get("/")
 async def root():
